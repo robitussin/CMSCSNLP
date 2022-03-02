@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import re, emoji, os
+import re, emoji, os, random
 import nltk as nltk
 #nltk.download('punkt')
 from nltk.tag.stanford import StanfordPOSTagger
@@ -9,11 +9,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, f1_score, precision_score, recall_score
-
-
 
 stop_words = ['akin','aking','ako','alin','am','amin','aming','ang','ano','anumang','apat','at','atin','ating','ay','bababa','bago','bakit','bawat','bilang','dahil',
              'dalawa','dapat','din','dito','doon','gagawin','gayunman','ginagawa','ginawa','ginawang','gumawa','gusto','habang','hanggang','hindi','huwag','iba','ibaba',
@@ -36,6 +34,41 @@ jarfile = stanford_dir+"\\stanford-postagger.jar"
 
 pos_tagger = StanfordPOSTagger(modelfile,jarfile,java_options="-Xmx4G")
 """
+
+#---------------------------------------------------------------------------------------------  utility functions
+# Remove articles (a, an, and, the)
+# Remove any other characters other than alphabetical characters
+# Remove white spaces
+def cleaner(text):
+    text = re.sub('[^a-zA-Z]', '', str(text))
+    text = re.sub(' +', ' ', str(text))
+
+    cleaned_text = text.strip()
+    return cleaned_text
+
+def word_count_per_doc(text):
+	tokenized = word_tokenize(cleaner(text))
+	return len(tokenized)
+
+PUNCTUATIONS = ['.', ',', '!', '?', ';', ':']
+PUNC_RATIO = 0.3
+
+# Data Augmentation Technique
+def insert_punctuation_marks(sentence, punc_ratio=PUNC_RATIO):
+	words = sentence.split(' ')
+	new_line = []
+	q = random.randint(1, int(punc_ratio * len(words) + 1))
+	qs = random.sample(range(0, len(words)), q)
+
+	for j, word in enumerate(words):
+		if j in qs:
+			new_line.append(PUNCTUATIONS[random.randint(0, len(PUNCTUATIONS)-1)])
+			new_line.append(word)
+		else:
+			new_line.append(word)
+	new_line = ' '.join(new_line)
+	return new_line
+
 #---------------------------------------------------------------------------------------------  Cleaning process
 
 # Remove duplicates
@@ -55,7 +88,7 @@ dataset = dataset.rename(columns={"COMMENTS": "comments", "MAJORITY": "label"})
 # show certain lables
 #print(mergedset.loc[mergedset['MAJORITY'] == "0"])
 
-print(dataset['label'].value_counts())
+#print(dataset['label'].value_counts())
 
 
 # Get number total number of rows per class
@@ -82,20 +115,20 @@ dataset_surprise_under = dataset_surprise.sample(sampleCount)
 balanced_dataset = pd.concat([dataset_disgust, dataset_none_under, dataset_sadness_under, dataset_anger_under, dataset_joy_under, dataset_fear_under, dataset_surprise_under], ignore_index=True)
 """
 dataset_disgust_over = dataset_disgust.sample(sampleCount, replace=True)
-dataset_sadness_over  = dataset_sadness.sample(sampleCount, replace=True)
-dataset_anger_over  = dataset_anger.sample(sampleCount, replace=True)
-dataset_joy_over  = dataset_joy.sample(sampleCount, replace=True)
-dataset_fear_over  = dataset_fear.sample(sampleCount, replace=True)
-dataset_surprise_over  = dataset_surprise.sample(sampleCount, replace=True)
+dataset_sadness_over = dataset_sadness.sample(sampleCount, replace=True)
+dataset_anger_over = dataset_anger.sample(sampleCount, replace=True)
+dataset_joy_over = dataset_joy.sample(sampleCount, replace=True)
+dataset_fear_over = dataset_fear.sample(sampleCount, replace=True)
+dataset_surprise_over = dataset_surprise.sample(sampleCount, replace=True)
 
 balanced_dataset = pd.concat([dataset_none, dataset_disgust_over, dataset_sadness_over, dataset_anger_over, dataset_joy_over, dataset_fear_over, dataset_surprise_over], ignore_index=True)
 
-print(balanced_dataset['label'].value_counts())
+#print(balanced_dataset['label'].value_counts())
 
 balanced_dataset = shuffle(balanced_dataset)
 dataset_X = balanced_dataset[['comments']]
+dataset_X = dataset_X['comments'].apply(insert_punctuation_marks).to_frame()
 dataset_y = balanced_dataset['label']
-#print(balanced_dataset)
 
 # Train and test split
 X_train, X_test, y_train, y_test = train_test_split(dataset_X, dataset_y, test_size=0.20, random_state=1)
@@ -120,21 +153,6 @@ print(y_train.shape)
 print(y_test.shape)
 print(y_val.shape)
 
-
-#---------------------------------------------------------------------------------------------  utility functions
-# Remove articles (a, an, and, the)
-# Remove any other characters other than alphabetical characters
-# Remove white spaces
-def cleaner(text):
-    text = re.sub('[^a-zA-Z]', '', str(text))
-    text = re.sub(' +', ' ', str(text))
-
-    cleaned_text = text.strip()
-    return cleaned_text
-
-def word_count_per_doc(text):
-	tokenized = word_tokenize(cleaner(text))
-	return len(tokenized)
 
 #---------------------------------------------------------------------------------------------  Traditional features
 
@@ -281,7 +299,6 @@ def lexical_density(text):
     return (lexical_item_counter/word_count_per_doc(text))
 
 #---------------------------------------------------------------------------------------------  Extract Features
-
 vectorizer = CountVectorizer()
 vectorizer.fit_transform(X_train['comments'])
 
@@ -363,26 +380,13 @@ collected_features_val = collected_features_val.to_numpy();
 y_train = y_train.to_numpy();
 y_train = np.squeeze(y_train)
 
-knn_clf = KNeighborsClassifier()
+knn_clf = KNeighborsClassifier(n_neighbors = 7)
 knn_clf.fit(collected_features_train,y_train)
 
 y_pred = knn_clf.predict(collected_features_val)
 
 print(classification_report(y_val, y_pred))
 print(confusion_matrix(y_val, y_pred))
-
-#---------------------------------------------------------------------------------------------  SVM
-# Support Vector Machine
-svc_lf = SVC(kernel='linear')
-svc_lf.fit(collected_features_train, y_train)
-
-y_pred = svc_lf.predict(collected_features_val)
-
-svc_gxboost = svc_lf.score(collected_features_val, y_val)
-print('accuracy_gxboost: ', svc_gxboost)
-print('f1 score: ', f1_score(y_val, y_pred, average="macro"))
-print('precision score: ', precision_score(y_val, y_pred, average="macro"))
-print('recall score', recall_score(y_val, y_pred, average="macro"))
 
 #---------------------------------------------------------------------------------------------  MNB
 # Multinomial Naive Bayes
@@ -393,3 +397,73 @@ y_pred = mnb_clf.predict(collected_features_val)
 
 print(classification_report(y_val, y_pred))
 print(confusion_matrix(y_val, y_pred))
+
+#---------------------------------------------------------------------------------------------  Decision Tree
+# Decision Trees
+dt_clf = DecisionTreeClassifier()
+dt_clf.fit(collected_features_train, y_train)
+
+y_pred = dt_clf.predict(collected_features_val)
+
+print(classification_report(y_val, y_pred))
+print(confusion_matrix(y_val, y_pred))
+
+#---------------------------------------------------------------------------------------------  Test
+
+# Feature 1 - Word Frequency
+X_f1 = X_test['comments'].apply(wordFrequency)
+X_f1 = vectorizer.transform(X_test['comments'])
+X_f1 = pd.DataFrame(X_f1.toarray())
+
+# Feature 2 - Emojis(Sad)
+X_f2 = X_test['comments'].apply(check_sad_emojis)
+
+# Feature 3 - Emojis(Angry)
+X_f3 = X_test['comments'].apply(check_angry_emojis)
+
+# Feature 4 - Emojis(Joy)
+X_f4 = X_test['comments'].apply(check_joy_emojis)
+
+# Feature 5 - Emojis(Disgust)
+X_f5 = X_test['comments'].apply(check_disgust_emojis)
+
+# Feature 6 - Emojis(Fear)
+X_f6 = X_test['comments'].apply(check_fear_emojis)
+
+# Feature 7 - Emojis(Surprise)
+X_f7 = X_test['comments'].apply(check_surprise_emojis)
+
+# Feature 8 - Vowel Count
+X_f8 = X_test['comments'].apply(vowel_count)
+
+# Feature 9 - Consonant Count
+X_f9 = X_test['comments'].apply(consonant_count)
+
+# Feature 10 - Consonant Cluster
+X_f10 = X_test['comments'].apply(get_consonant_cluster)
+
+# Concatenate all features
+collected_features_test = pd.concat([X_f1, X_f2, X_f3, X_f4, X_f5, X_f6, X_f7, X_f8, X_f9, X_f10], axis=1)
+collected_features_test = collected_features_test.to_numpy();
+
+#---------------------------------------------------------------------------------------------  KNN
+# K Nearest Neighbor
+y_pred = knn_clf.predict(collected_features_test)
+
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
+
+#---------------------------------------------------------------------------------------------  MNB
+# Multinomial Naive Bayes
+
+y_pred = mnb_clf.predict(collected_features_test)
+
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
+
+#---------------------------------------------------------------------------------------------  Decision Tree
+# Decision Trees
+y_pred = dt_clf.predict(collected_features_test)
+
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
